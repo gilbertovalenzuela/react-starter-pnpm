@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  web:
+    container_name: PROJECT_NAME_PLACEHOLDER-web
+    build:
+      context: .
+      # En desarrollo usamos la etapa 'deps' que tiene Node, no Nginx
+      target: deps
+
+    ports:
+      - '${PORT:-5173}:5173'
+
+    environment:
+      - VITE_API_URL=http://localhost:3000/api # Apunta a tu backend local
+
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+    # Comando para levantar Vite en modo dev
+    command: pnpm run dev
+
+    restart: on-failure
