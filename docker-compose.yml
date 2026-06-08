@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   web:
-    container_name: PROJECT_NAME_PLACEHOLDER-web
+    container_name: react-starter-pnpm-web
     build:
       context: .
       # En desarrollo usamos la etapa 'deps' que tiene Node, no Nginx

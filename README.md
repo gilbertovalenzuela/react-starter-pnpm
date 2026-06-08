@@ -33,6 +33,35 @@ pnpm test
 pnpm build
 ```
 
+## 📘 Beginner Setup Guide
+
+New to Docker, GitHub Actions, or CI/CD? Check out our detailed step-by-step setup guide:
+
+👉 **[Complete Setup Guide for Beginners](./SETUP_GUIDE.md)**
+
+This guide includes:
+
+- Detailed prerequisites and installation instructions
+- Step-by-step Docker Hub configuration
+- GitHub Secrets setup with screenshots
+- Complete workflow explanations for development and production
+- Troubleshooting common issues
+- Best practices for each environment
+
+## 🎨 Using as Template
+
+Want to use this project as a template for your own projects?
+
+👉 **[Template Customization Guide](./TEMPLATE_CUSTOMIZATION.md)**
+
+This guide explains:
+
+- All files you need to modify when using this as a template
+- Step-by-step instructions for each configuration file
+- What to change in package.json, Docker, GitHub Actions, and more
+- Complete checklist to ensure nothing is missed
+- Optional automation script for bulk replacements
+
 ## 📚 Documentation
 
 For comprehensive documentation, including:
@@ -47,17 +76,21 @@ For comprehensive documentation, including:
 
 ## 📋 Available Scripts
 
-| Command         | Description                        |
-| --------------- | ---------------------------------- |
-| `pnpm dev`      | Start development server           |
-| `pnpm build`    | Build for production               |
-| `pnpm preview`  | Preview production build           |
-| `pnpm lint`     | Run ESLint                         |
-| `pnpm test`     | Run unit tests in watch mode       |
-| `pnpm test:ui`  | Run tests with UI                  |
-| `pnpm test:e2e` | Run E2E tests                      |
-| `pnpm coverage` | Generate coverage report           |
-| `pnpm commit`   | Interactive commit with Commitizen |
+| Command             | Description                        |
+| ------------------- | ---------------------------------- |
+| `pnpm dev`          | Start development server           |
+| `pnpm build`        | Build for production               |
+| `pnpm preview`      | Preview production build           |
+| `pnpm lint`         | Run ESLint                         |
+| `pnpm test`         | Run unit tests in watch mode       |
+| `pnpm test:ui`      | Run tests with UI                  |
+| `pnpm test:e2e`     | Run E2E tests                      |
+| `pnpm coverage`     | Generate coverage report           |
+| `pnpm commit`       | Interactive commit with Commitizen |
+| `pnpm docker:build` | Build Docker image                 |
+| `pnpm docker:dev`   | Start Docker Compose development   |
+| `pnpm docker:prod`  | Build and run Docker production    |
+| `pnpm docker:down`  | Stop Docker Compose containers     |
 
 ## 🛠️ Tech Stack
 
@@ -69,6 +102,100 @@ For comprehensive documentation, including:
 - **ESLint 10.4.1** - Linting
 - **Prettier 3.8.3** - Formatting
 - **pnpm** - Package manager
+
+## 🐳 Docker
+
+This project includes Docker configuration for both development and production environments.
+
+### Development with Docker Compose
+
+```bash
+# Start development server with hot reload
+pnpm docker:dev
+
+# Or using docker-compose directly
+docker-compose up
+
+# Stop containers
+pnpm docker:down
+# Or
+docker-compose down
+```
+
+The development environment:
+
+- Runs Vite dev server on port 5173
+- Supports hot module replacement
+- Mounts source code for live updates
+
+### Production Build with Docker
+
+```bash
+# Build production image
+pnpm docker:build
+
+# Build and run production container
+pnpm docker:prod
+
+# Or build manually with build arguments
+docker build --target prod -t react-starter-pnpm:prod --build-arg VITE_API_URL=https://api.example.com .
+docker run -p 80:80 react-starter-pnpm:prod
+```
+
+The production environment:
+
+- Uses multi-stage build for optimization
+- Serves static files with Nginx
+- Includes SPA routing support
+- Exposes port 80
+
+### Docker Configuration Files
+
+- **Dockerfile**: Multi-stage build configuration
+- **docker-compose.yml**: Development environment setup
+- **nginx.conf**: Nginx configuration for production
+- **.dockerignore**: Files excluded from Docker build
+- **.env.example**: Environment variables template
+
+## 🔄 CI/CD with GitHub Actions
+
+This project includes automated CI/CD pipelines using GitHub Actions.
+
+### Workflows
+
+- **CI/CD Pipeline**: Runs on push to main/develop branches and on PRs
+  - Linting with ESLint
+  - Type checking with TypeScript
+  - Unit testing with Vitest
+  - Coverage reporting
+  - Application build
+  - Docker image build and push (main branch only)
+  - Deployment (main branch only, requires configuration)
+
+- **PR Check**: Lightweight workflow for pull requests
+  - Linting, type checking, testing, and build
+
+### Setup
+
+1. **Configure Secrets** in your GitHub repository settings:
+   - `DOCKER_USERNAME`: Your Docker Hub username
+   - `DOCKER_PASSWORD`: Your Docker Hub password or access token
+   - `VITE_API_URL`: API URL for production builds (optional)
+   - `CODECOV_TOKEN`: Codecov token for coverage reports (optional)
+
+2. **Customize Deployment** in `.github/workflows/ci-cd.yml`:
+   - Edit the `deploy` job to add your deployment logic
+   - Supports Kubernetes, AWS ECS, Google Cloud Run, etc.
+
+### Documentation
+
+See [`.github/workflows/README.md`](.github/workflows/README.md) for detailed documentation on:
+
+- Workflow configuration
+- Secret setup
+- Customization options
+- Local testing with `act`
+- Troubleshooting
 
 ## 📁 Project Structure
 

@@ -3,8 +3,12 @@
 # ----------------------------------------------------------------------------
 FROM node:20-alpine AS deps
 WORKDIR /app
+
+# Instalar pnpm
+RUN npm install -g pnpm
+
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm ci
+RUN pnpm install
 
 # ----------------------------------------------------------------------------
 # Etapa 2: Build (Producción)

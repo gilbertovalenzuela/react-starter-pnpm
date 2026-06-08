@@ -6,12 +6,13 @@
 2. [Stack Tecnológico](#stack-tecnológico)
 3. [Estructura del Proyecto](#estructura-del-proyecto)
 4. [Configuración Detallada](#configuración-detallada)
-5. [Guía de Uso](#guía-de-uso)
-6. [Flujo de Trabajo Completo](#flujo-de-trabajo-completo)
-7. [Comandos Disponibles](#comandos-disponibles)
-8. [Convenciones y Mejores Prácticas](#convenciones-y-mejores-prácticas)
-9. [Troubleshooting](#troubleshooting)
-10. [Recursos Adicionales](#recursos-adicionales)
+5. [Flujos de Trabajo por Entorno](#10-flujos-de-trabajo-por-entorno)
+6. [Guía de Uso](#guía-de-uso)
+7. [Flujo de Trabajo Completo](#flujo-de-trabajo-completo)
+8. [Comandos Disponibles](#comandos-disponibles)
+9. [Convenciones y Mejores Prácticas](#convenciones-y-mejores-prácticas)
+10. [Troubleshooting](#troubleshooting)
+11. [Recursos Adicionales](#recursos-adicionales)
 
 ---
 
@@ -572,6 +573,1011 @@ Playwright permite:
 - Testing de APIs
 - Generación automática de tests
 - Visual regression testing
+
+### 8. Docker Configuration
+
+El proyecto incluye configuración completa de Docker para desarrollo y producción.
+
+#### `Dockerfile` - Multi-stage Build
+
+El Dockerfile utiliza un enfoque multi-stage para optimizar el tamaño de la imagen final:
+
+```dockerfile
+# Etapa 1: Base & Deps
+FROM node:20-alpine AS deps
+WORKDIR /app
+
+# Instalar pnpm
+RUN npm install -g pnpm
+
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install
+
+# Etapa 2: Build (Producción)
+FROM deps AS build
+COPY . .
+
+# Argumentos para quemar variables de entorno en el build
+ARG VITE_API_URL
+ENV VITE_API_URL=${VITE_API_URL}
+
+RUN pnpm run build
+
+# Etapa 3: Run (Nginx)
+FROM nginx:alpine AS prod
+
+# Copiamos la configuración de Nginx
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copiamos los archivos estáticos generados
+COPY --from=build /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+**Etapas del Build:**
+
+1. **deps**: Instala dependencias con pnpm
+2. **build**: Compila la aplicación React con Vite
+3. **prod**: Sirve los archivos estáticos con Nginx
+
+#### `docker-compose.yml` - Desarrollo
+
+Configuración para desarrollo con hot reload:
+
+```yaml
+version: '3.8'
+
+services:
+  web:
+    container_name: react-starter-pnpm-web
+    build:
+      context: .
+      target: deps # Usa la etapa 'deps' que tiene Node
+
+    ports:
+      - '${PORT:-5173}:5173'
+
+    environment:
+      - VITE_API_URL=http://localhost:3000/api
+
+    volumes:
+      - .:/app
+      - /app/node_modules # Evita sobrescribir node_modules
+
+    command: pnpm run dev
+    restart: on-failure
+```
+
+#### `nginx.conf` - Configuración de Nginx
+
+Configuración optimizada para SPAs:
+
+```nginx
+server {
+    listen 80;
+    server_name localhost;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # SPA Routing: sirve index.html para cualquier ruta
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+#### `.dockerignore` - Optimización del Build
+
+Excluye archivos innecesarios del contexto de build:
+
+```
+node_modules
+npm-debug.log
+dist
+.git
+.gitignore
+.env
+.env.local
+.env.production
+coverage
+.vscode
+.idea
+*.log
+.DS_Store
+```
+
+#### Scripts de Docker en package.json
+
+```json
+{
+  "scripts": {
+    "docker:build": "docker build -t react-starter-pnpm .",
+    "docker:dev": "docker-compose up",
+    "docker:prod": "docker build --target prod -t react-starter-pnpm:prod . && docker run -p 80:80 react-starter-pnpm:prod",
+    "docker:down": "docker-compose down"
+  }
+}
+```
+
+#### Uso de Docker
+
+**Desarrollo:**
+
+```bash
+# Iniciar entorno de desarrollo
+pnpm docker:dev
+
+# Detener contenedores
+pnpm docker:down
+```
+
+**Producción:**
+
+```bash
+# Construir imagen de producción
+pnpm docker:build
+
+# Construir y ejecutar producción
+pnpm docker:prod
+
+# O con argumentos de build
+docker build --target prod \
+  -t react-starter-pnpm:prod \
+  --build-arg VITE_API_URL=https://api.example.com \
+  .
+docker run -p 80:80 react-starter-pnpm:prod
+```
+
+**Ventajas de Docker:**
+
+- **Consistencia**: Mismo entorno en desarrollo y producción
+- **Aislamiento**: Dependencias aisladas del sistema host
+- **Portabilidad**: Ejecutable en cualquier sistema con Docker
+- **Optimización**: Multi-stage build reduce tamaño de imagen
+- **Escalabilidad**: Fácil de desplegar en orquestadores (Kubernetes, Docker Swarm)
+
+### 9. GitHub Actions CI/CD
+
+El proyecto incluye pipelines automatizados de CI/CD usando GitHub Actions.
+
+#### Workflows Configurados
+
+**CI/CD Pipeline** (`.github/workflows/ci-cd.yml`):
+
+Pipeline principal que se ejecuta en pushes a las ramas `main` y `develop`, y en pull requests.
+
+**Etapas:**
+
+- **Lint**: Ejecuta ESLint para verificar la calidad del código
+- **Type Check**: Ejecuta el compilador de TypeScript para verificar seguridad de tipos
+- **Unit Tests**: Ejecuta tests unitarios con Vitest
+- **Coverage**: Genera reporte de cobertura de código
+- **Build**: Construye la aplicación con Vite
+- **Docker Build**: Construye y push de imagen Docker (solo rama main)
+- **Deploy**: Despliega a producción (solo rama main, requiere configuración)
+
+**PR Check** (`.github/workflows/pr-check.yml`):
+
+Workflow ligero para pull requests que ejecuta verificaciones rápidas sin build de Docker.
+
+**Verificaciones:**
+
+- Lint
+- Type Check
+- Unit Tests
+- Build
+
+#### Configuración de Secrets
+
+Configura estos secrets en los ajustes de tu repositorio de GitHub (`Settings > Secrets and variables > Actions`):
+
+**Requeridos para Docker:**
+
+- `DOCKER_USERNAME`: Tu usuario de Docker Hub
+- `DOCKER_PASSWORD`: Tu password o token de acceso de Docker Hub
+
+**Opcionales:**
+
+- `VITE_API_URL`: URL de API para incluir en el build de producción
+- `CODECOV_TOKEN`: Token para subir reportes de cobertura a Codecov
+
+#### Configuración de Secrets
+
+1. Ve a tu repositorio de GitHub
+2. Navega a `Settings` > `Secrets and variables` > `Actions`
+3. Haz clic en `New repository secret`
+4. Agrega cada secret con su valor correspondiente
+
+**Token de Acceso de Docker Hub (Recomendado):**
+
+En lugar de usar tu password de Docker, crea un token de acceso:
+
+1. Inicia sesión en [Docker Hub](https://hub.docker.com/)
+2. Ve a `Account Settings` > `Security`
+3. Haz clic en `New Access Token`
+4. Dale un nombre descriptivo (ej: `github-actions`)
+5. Copia el token generado
+6. Usa este token como el secret `DOCKER_PASSWORD`
+
+#### Triggers de Workflow
+
+**CI/CD Pipeline:**
+
+- **Push a main/develop**: Ejecuta el pipeline completo incluyendo build de Docker y deploy
+- **Pull requests a main/develop**: Ejecuta solo checks de CI (sin build de Docker ni deploy)
+
+**PR Check:**
+
+- **Pull requests**: Ejecuta checks rápidos para feedback rápido
+
+#### Personalización
+
+**Cambiar Versión de Node:**
+
+Edita la variable de entorno `NODE_VERSION` en los archivos de workflow:
+
+```yaml
+env:
+  NODE_VERSION: '20' # Cambia a tu versión deseada
+```
+
+**Cambiar Versión de pnpm:**
+
+Edita la variable de entorno `PNPM_VERSION`:
+
+```yaml
+env:
+  PNPM_VERSION: '10' # Cambia a tu versión deseada
+```
+
+**Modificar Deployment:**
+
+Edita el job `deploy` en `ci-cd.yml` para agregar tu lógica específica de deployment:
+
+```yaml
+- name: Deploy to cloud provider
+  run: |
+    # Agrega tus comandos de deployment
+    # Ejemplo para Kubernetes:
+    kubectl apply -f k8s/
+    # Ejemplo para Google Cloud Run:
+    gcloud run deploy --image gcr.io/PROJECT-ID/IMAGE-NAME
+```
+
+**Deshabilitar Deployment:**
+
+Para deshabilitar el deployment automático, comenta o elimina el job `deploy` de `ci-cd.yml`.
+
+#### Pruebas Locales
+
+Para probar los workflows localmente antes de hacer push:
+
+1. Instala [act](https://github.com/nektos/act):
+
+```bash
+brew install act  # macOS
+# o
+choco install act  # Windows
+# o
+curl https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
+```
+
+2. Ejecuta el workflow localmente:
+
+```bash
+act -j pr-check  # Ejecutar workflow PR check
+act -j ci        # Ejecutar job CI
+```
+
+#### Monitoreo
+
+Ve las ejecuciones del workflow en la pestaña `Actions` de tu repositorio de GitHub. Cada ejecución muestra:
+
+- Estado del job (éxito/fallo)
+- Logs para cada paso
+- Artefactos (outputs de build, reportes de cobertura)
+- Tiempo de ejecución
+
+#### Troubleshooting
+
+**El Build de Docker Falla:**
+
+- Verifica que los secrets `DOCKER_USERNAME` y `DOCKER_PASSWORD` estén configurados correctamente
+- Asegúrate de que tu repositorio de Docker Hub exista
+- Verifica que el nombre de la imagen en el workflow coincida con tu repositorio de Docker Hub
+
+**Los Tests Fallan:**
+
+- Ejecuta tests localmente: `pnpm test --run`
+- Revisa los logs de tests en la pestaña Actions
+- Asegúrate de que todas las dependencias estén instaladas correctamente
+
+**El Type Check Falla:**
+
+- Ejecuta type check localmente: `pnpm tsc --noEmit`
+- Corrige cualquier error de TypeScript antes de hacer push
+
+**Fall la Subida de Coverage:**
+
+- Asegúrate de que `CODECOV_TOKEN` esté configurado si tu repositorio es privado
+- Verifica que los archivos de coverage se generen correctamente
+
+#### Mejores Prácticas
+
+1. **Ejecuta siempre PR checks** antes de mergear para asegurar calidad de código
+2. **Mantén los workflows rápidos** dividiendo operaciones pesadas en jobs separados
+3. **Usa caching** para acelerar la instalación de dependencias y builds de Docker
+4. **Monitorea el tiempo de ejecución** de los workflows y optimiza pasos lentos
+5. **Mantén los secrets seguros** y nunca los commits al repositorio
+6. **Prueba localmente** con `act` antes de hacer push de cambios a los workflows
+
+### 10. Flujos de Trabajo por Entorno
+
+El proyecto soporta múltiples entornos de trabajo, cada uno optimizado para diferentes propósitos. A continuación se detallan los flujos completos para cada entorno.
+
+---
+
+## 🔧 Entorno de Desarrollo Local (Development)
+
+### Propósito
+
+Desarrollo rápido de nuevas características con feedback inmediato.
+
+### Características
+
+- ✅ Hot Module Replacement (HMR) para cambios instantáneos
+- ✅ Source maps para debugging fácil
+- ✅ TypeScript compilation al vuelo
+- ✅ Tests en modo watch
+- ✅ Sin optimización de producción (build más rápido)
+
+### Flujo de Trabajo
+
+#### Paso 1: Inicialización del Entorno
+
+```bash
+# 1. Clonar el repositorio (si no lo tienes)
+git clone https://github.com/TU_USUARIO/react-starter-pnpm.git
+cd react-starter-pnpm
+
+# 2. Instalar dependencias
+pnpm install
+
+# 3. Copiar variables de entorno (opcional)
+cp .env.example .env
+# Editar .env según necesites
+```
+
+#### Paso 2: Iniciar Servidor de Desarrollo
+
+**Opción A: Sin Docker (Más rápido)**
+
+```bash
+pnpm dev
+```
+
+**Qué sucede:**
+
+- Vite inicia servidor en `http://localhost:5173`
+- TypeScript se compila al vuelo
+- Los cambios se reflejan automáticamente en el navegador
+- Los errores de TypeScript se muestran en la terminal y navegador
+
+**Opción B: Con Docker (Simula entorno de producción)**
+
+```bash
+pnpm docker:dev
+```
+
+**Qué sucede:**
+
+- Se crea un contenedor Docker con Node.js
+- Se instalan dependencias dentro del contenedor
+- Se inicia Vite en modo desarrollo
+- Tu código local se monta en el contenedor
+- Los cambios se reflejan automáticamente
+
+**Para detener:**
+
+```bash
+# Opción A
+Ctrl + C
+
+# Opción B
+pnpm docker:down
+```
+
+#### Paso 3: Desarrollo Iterativo
+
+**Ciclo típico de desarrollo:**
+
+1. **Crear/Modificar componente**
+
+```typescript
+// src/components/Button.tsx
+interface ButtonProps {
+  children: React.ReactNode;
+  onClick?: () => void;
+}
+
+export function Button({ children, onClick }: ButtonProps) {
+  return <button onClick={onClick}>{children}</button>;
+}
+```
+
+2. **Ver cambios en el navegador** (automático con HMR)
+
+3. **Ejecutar tests específicos**
+
+```bash
+# Tests en modo watch
+pnpm test
+
+# Tests específicos de un archivo
+pnpm test Button
+```
+
+4. **Verificar tipos**
+
+```bash
+pnpm tsc --noEmit
+```
+
+5. **Verificar estilo**
+
+```bash
+pnpm lint
+```
+
+#### Paso 4: Preparar para Commit
+
+```bash
+# 1. Verificar que todo pasa
+pnpm lint
+pnpm tsc --noEmit
+pnpm test --run
+pnpm build
+
+# 2. Agregar cambios
+git add .
+
+# 3. Commit con wizard interactivo
+pnpm commit
+```
+
+#### Paso 5: Crear Pull Request
+
+```bash
+# 1. Crear rama de feature
+git checkout -b feature/nueva-funcionalidad
+
+# 2. Hacer cambios y commits
+# ... (desarrollo iterativo) ...
+
+# 3. Push al remoto
+git push origin feature/nueva-funcionalidad
+```
+
+**En GitHub:**
+
+1. Crear Pull Request desde `feature/nueva-funcionalidad` hacia `main`
+2. GitHub Actions ejecuta automáticamente:
+   - Lint
+   - Type Check
+   - Unit Tests
+   - Build
+3. Revisar resultados en la pestaña "Checks"
+4. Si todo pasa ✅, solicitar review
+5. Después de aprobación, hacer merge
+
+---
+
+## 🧪 Entorno de Testing (Testing)
+
+### Propósito
+
+Verificar que el código funciona correctamente antes de desplegar.
+
+### Características
+
+- ✅ Tests unitarios con Vitest
+- ✅ Tests E2E con Playwright
+- ✅ Coverage de código
+- ✅ Tests en modo watch para desarrollo
+- ✅ Tests en CI para verificación automática
+
+### Flujo de Trabajo
+
+#### Testing Local
+
+**Unit Tests (Vitest)**
+
+```bash
+# Modo watch (desarrollo)
+pnpm test
+
+# Ejecutar una vez
+pnpm test --run
+
+# Con UI visual
+pnpm test:ui
+
+# Coverage
+pnpm coverage
+pnpm coverage:open  # Abre reporte HTML
+```
+
+**E2E Tests (Playwright)**
+
+```bash
+# Instalar navegadores (primera vez)
+pnpm exec playwright install
+
+# Ejecutar tests E2E
+pnpm test:e2e
+
+# Con UI visual
+pnpm test:e2e:ui
+```
+
+#### Testing en CI
+
+Los tests se ejecutan automáticamente en:
+
+- **Pull Requests:** Workflow `PR Check`
+- **Push a main/develop:** Workflow `CI/CD Pipeline`
+
+**Qué se ejecuta:**
+
+1. Lint (ESLint)
+2. Type Check (TypeScript)
+3. Unit Tests (Vitest)
+4. Build (Vite)
+5. (Opcional) E2E Tests (Playwright)
+6. Coverage report
+
+---
+
+## 🐳 Entorno de Desarrollo con Docker (Docker Dev)
+
+### Propósito
+
+Desarrollo en un entorno idéntico a producción.
+
+### Características
+
+- ✅ Entorno consistente (mismo OS, mismas dependencias)
+- ✅ Aislamiento del sistema host
+- ✅ Fácil de compartir con el equipo
+- ✅ Hot Module Replacement funcionando
+- ✅ Simulación exacta del entorno de producción
+
+### Flujo de Trabajo
+
+#### Paso 1: Iniciar Entorno Docker
+
+```bash
+pnpm docker:dev
+```
+
+**Qué sucede internamente:**
+
+1. Docker Compose lee `docker-compose.yml`
+2. Construye la imagen usando la etapa `deps` del Dockerfile
+3. Instala pnpm en el contenedor
+4. Instala dependencias
+5. Monta tu código local en `/app`
+6. Inicia `pnpm run dev`
+7. Expone el puerto 5173
+
+#### Paso 2: Desarrollo Normal
+
+Desarrollas normalmente:
+
+- Editas archivos en tu editor
+- Los cambios se reflejan automáticamente (volumes)
+- El navegador se actualiza (HMR)
+- Los errors aparecen en la terminal
+
+#### Paso 3: Debugging
+
+```bash
+# Ver logs del contenedor
+docker logs react-starter-pnpm-web
+
+# Entrar al contenedor
+docker exec -it react-starter-pnpm-web sh
+
+# Ejecutar comandos dentro del contenedor
+cd /app
+pnpm test
+pnpm lint
+```
+
+#### Paso 4: Detener Entorno
+
+```bash
+pnpm docker:down
+```
+
+**Esto detiene y elimina:**
+
+- El contenedor
+- La red Docker
+- Los volumes (si no son nombrados)
+
+---
+
+## 🚀 Entorno de Producción (Production)
+
+### Propósito
+
+Despliegue de la aplicación para usuarios finales.
+
+### Características
+
+- ✅ Código optimizado y minificado
+- ✅ Servido con Nginx (alto rendimiento)
+- ✅ Multi-stage build (imagen pequeña)
+- ✅ Variables de entorno quemadas en build
+- ✅ SPA routing configurado
+- ✅ Listo para orquestadores (Kubernetes, Docker Swarm)
+
+### Flujo de Trabajo
+
+#### Opción A: Build Manual Local
+
+**Paso 1: Construir Imagen**
+
+```bash
+# Build básico
+docker build -t react-starter-pnpm .
+
+# Build con argumentos
+docker build \
+  --target prod \
+  -t react-starter-pnpm:prod \
+  --build-arg VITE_API_URL=https://api.tu-dominio.com \
+  .
+```
+
+**Qué sucede:**
+
+1. **Etapa deps:** Instala dependencias con pnpm
+2. **Etapa build:** Compila React con Vite
+   - TypeScript → JavaScript
+   - JSX → JS
+   - Minificación
+   - Code splitting
+3. **Etapa prod:** Copia archivos a Nginx
+   - Solo archivos estáticos
+   - Sin Node.js, sin dependencias
+   - Imagen pequeña (~25MB)
+
+**Paso 2: Ejecutar Contenedor**
+
+```bash
+docker run -d \
+  -p 80:80 \
+  --name react-app \
+  react-starter-pnpm:prod
+```
+
+**Paso 3: Verificar**
+
+```bash
+# Ver contenedor corriendo
+docker ps
+
+# Ver logs
+docker logs react-app
+
+# Probar
+curl http://localhost/
+```
+
+#### Opción B: Build Automatizado con CI/CD
+
+**Paso 1: Hacer Push a Main**
+
+```bash
+git checkout main
+git pull origin main
+# ... hacer cambios ...
+git add .
+git commit -m "feat: nueva funcionalidad"
+git push origin main
+```
+
+**Paso 2: GitHub Actions se Ejecuta Automáticamente**
+
+**Job CI:**
+
+```yaml
+- Checkout código
+- Setup pnpm y Node.js
+- Install dependencias
+- Run lint
+- Run type check
+- Run tests
+- Generate coverage
+- Build aplicación
+- Upload artefactos
+```
+
+**Job Docker Build (solo si CI pasa):**
+
+```yaml
+- Setup Docker Buildx
+- Login a Docker Hub
+- Extraer metadata (tags, labels)
+- Build imagen Docker
+- Push imagen a Docker Hub
+- Configurar cache
+```
+
+**Job Deploy (solo si Docker Build pasa):**
+
+```yaml
+- (Placeholder) Agregar tu lógica de deploy
+```
+
+**Paso 3: Verificar en Docker Hub**
+
+1. Ve a [hub.docker.com](https://hub.docker.com/)
+2. Busca tu repositorio `react-starter-pnpm`
+3. Verifica que la imagen con tag `latest` existe
+
+**Paso 4: Desplegar Imagen**
+
+```bash
+# Descargar y ejecutar
+docker run -d -p 80:80 TU_USUARIO/react-starter-pnpm:latest
+```
+
+**O con docker-compose:**
+
+```yaml
+# docker-compose.prod.yml
+version: '3.8'
+
+services:
+  web:
+    image: TU_USUARIO/react-starter-pnpm:latest
+    container_name: react-app-prod
+    ports:
+      - '80:80'
+    restart: always
+```
+
+```bash
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+#### Opción C: Deploy Automatizado a Cloud
+
+**Configurar el Job Deploy en `.github/workflows/ci-cd.yml`:**
+
+**Ejemplo para AWS ECS:**
+
+```yaml
+- name: Deploy to ECS
+  uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+  with:
+    task-definition: my-task-definition
+    service: my-service
+    cluster: my-cluster
+    wait-for-service-stability: true
+```
+
+**Ejemplo para Google Cloud Run:**
+
+```yaml
+- name: Deploy to Cloud Run
+  uses: google-github-actions/deploy-cloudrun@v0
+  with:
+    service: react-app
+    region: us-central1
+    image: gcr.io/TU_PROJECT_ID/react-starter-pnpm:${{ github.sha }}
+    credentials: ${{ secrets.GCP_SA_KEY }}
+```
+
+**Ejemplo para Kubernetes:**
+
+```yaml
+- name: Deploy to Kubernetes
+  uses: azure/k8s-deploy@v4
+  with:
+    manifests: |
+      k8s/deployment.yaml
+      k8s/service.yaml
+    images: |
+      TU_USUARIO/react-starter-pnpm:${{ github.sha }}
+```
+
+---
+
+## 📊 Comparación de Entornos
+
+| Característica      | Desarrollo Local  | Docker Dev              | Producción       |
+| ------------------- | ----------------- | ----------------------- | ---------------- |
+| **Velocidad**       | ⚡⚡⚡ Muy rápida | ⚡⚡ Rápida             | ⚡ Lenta (build) |
+| **HMR**             | ✅ Sí             | ✅ Sí                   | ❌ No            |
+| **Debugging**       | ✅ Fácil          | ⚠️ Requiere pasos extra | ❌ Difícil       |
+| **Consistencia**    | ⚠️ Depende del OS | ✅ Total                | ✅ Total         |
+| **Optimización**    | ❌ No             | ❌ No                   | ✅ Sí            |
+| **Tamaño Imagen**   | N/A               | ~500MB                  | ~25MB            |
+| **Servidor**        | Vite Dev Server   | Vite Dev Server         | Nginx            |
+| **Hot Reload**      | ✅ Sí             | ✅ Sí                   | ❌ No            |
+| **Source Maps**     | ✅ Sí             | ✅ Sí                   | ❌ No            |
+| **Uso Recomendado** | Desarrollo diario | Testing integración     | Usuarios finales |
+
+---
+
+## 🔄 Flujo de Trabajo Completo (End-to-End)
+
+### Escenario: Desde Idea hasta Producción
+
+#### Fase 1: Planificación
+
+1. **Definir la funcionalidad**
+   - Qué se va a construir
+   - Qué APIs se necesitan
+   - Qué componentes se requieren
+
+2. **Crear rama de feature**
+
+```bash
+git checkout -b feature/nueva-funcionalidad
+```
+
+#### Fase 2: Desarrollo
+
+1. **Desarrollo local**
+
+```bash
+pnpm dev
+```
+
+- Crear componentes
+- Implementar lógica
+- Escribir tests
+
+2. **Testing continuo**
+
+```bash
+pnpm test          # Tests en modo watch
+pnpm lint          # Verificar estilo
+pnpm tsc --noEmit  # Verificar tipos
+```
+
+3. **Commits frecuentes**
+
+```bash
+git add .
+pnpm commit
+```
+
+#### Fase 3: Verificación
+
+1. **Build local**
+
+```bash
+pnpm build
+```
+
+2. **Testing con Docker (opcional)**
+
+```bash
+pnpm docker:dev
+# Verificar que funciona en entorno Docker
+pnpm docker:down
+```
+
+3. **Push y crear PR**
+
+```bash
+git push origin feature/nueva-funcionalidad
+```
+
+4. **GitHub Actions PR Check**
+   - Esperar a que pasen todos los checks
+   - Revisar logs si hay errores
+   - Corregir si es necesario
+
+#### Fase 4: Integración
+
+1. **Code Review**
+   - Solicitar review al equipo
+   - Address comentarios
+   - Hacer cambios si es necesario
+
+2. **Merge a main**
+   - Después de aprobación
+   - Squash merge (opcional)
+   - Delete branch después de merge
+
+#### Fase 5: Despliegue Automático
+
+1. **GitHub Actions CI/CD**
+   - CI job se ejecuta automáticamente
+   - Docker build se ejecuta automáticamente
+   - Deploy job se ejecuta automáticamente (si está configurado)
+
+2. **Verificar despliegue**
+   - Chequear que la imagen esté en Docker Hub
+   - Verificar que la aplicación esté funcionando
+   - Monitorear logs y errores
+
+#### Fase 6: Monitoreo
+
+1. **Verificar en producción**
+   - Navegar a la URL de producción
+   - Probar la nueva funcionalidad
+   - Verificar console errors
+
+2. **Monitorear errores**
+   - Revisar logs del servidor
+   - Verificar métricas de rendimiento
+   - Chequear errores reportados
+
+---
+
+## 🎯 Buenas Prácticas por Entorno
+
+### Desarrollo Local
+
+✅ **Hacer:**
+
+- Usar HMR para feedback rápido
+- Escribir tests mientras desarrollas
+- Hacer commits pequeños y frecuentes
+- Usar ramas de feature
+- Ejecutar lint y type check localmente
+
+❌ **No hacer:**
+
+- Commits grandes con muchos cambios
+- Ignorar warnings de TypeScript
+- Hacer commits sin tests
+- Trabajar directamente en main
+
+### Docker Dev
+
+✅ **Hacer:**
+
+- Usar volúmenes para hot reload
+- Verificar logs del contenedor
+- Limpiar contenedores e imágenes regularmente
+- Usar .dockerignore para builds más rápidos
+
+❌ **No hacer:**
+
+- Incluir node_modules en la imagen
+- Usar la etapa `prod` para desarrollo
+- Dejar contenedores corriendo sin usar
+- Ignorar errores de build
+
+### Producción
+
+✅ **Hacer:**
+
+- Usar siempre multi-stage builds
+- Especificar versiones exactas de dependencias
+- Incluir variables de entorno en build
+- Monitorear logs y métricas
+- Tener rollback plan
+
+❌ **No hacer:**
+
+- Usar la etapa `deps` o `build` para producción
+- Incluir secrets en la imagen
+- Desplegar sin testing
+- Ignorar errores de runtime
 
 ---
 
