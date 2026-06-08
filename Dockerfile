@@ -4,11 +4,11 @@
 FROM node:24-alpine AS deps
 WORKDIR /app
 
-# Instalar pnpm
-RUN npm install -g pnpm
+# Instalar pnpm usando el instalador oficial
+RUN npm install -g pnpm@10
 
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install
+RUN pnpm install --frozen-lockfile
 
 # ----------------------------------------------------------------------------
 # Etapa 2: Build (Producción)
